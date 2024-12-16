@@ -1,22 +1,22 @@
-import { ConsoleLogger } from '@nestjs/common';
-import { isLogLevelEnabled } from '@nestjs/common/services/utils/is-log-level-enabled.util';
-import { LogLevel } from 'src/entities/system-config.entity';
+import { HttpException } from '@nestjs/common';
+import { ILoggerRepository } from 'src/interfaces/logger.interface';
+import { TypeORMError } from 'typeorm';
 
-const LOG_LEVELS = [LogLevel.VERBOSE, LogLevel.DEBUG, LogLevel.LOG, LogLevel.WARN, LogLevel.ERROR, LogLevel.FATAL];
-
-// TODO move implementation to logger.repository.ts
-export class ImmichLogger extends ConsoleLogger {
-  private static logLevels: LogLevel[] = [LogLevel.LOG, LogLevel.WARN, LogLevel.ERROR, LogLevel.FATAL];
-
-  constructor(context: string) {
-    super(context);
+export const logGlobalError = (logger: ILoggerRepository, error: Error) => {
+  if (error instanceof HttpException) {
+    const status = error.getStatus();
+    const response = error.getResponse();
+    logger.debug(`HttpException(${status}): ${JSON.stringify(response)}`);
+    return;
   }
 
-  isLevelEnabled(level: LogLevel) {
-    return isLogLevelEnabled(level, ImmichLogger.logLevels);
+  if (error instanceof TypeORMError) {
+    logger.error(`Database error: ${error}`);
+    return;
   }
 
-  static setLogLevel(level: LogLevel | false): void {
-    ImmichLogger.logLevels = level === false ? [] : LOG_LEVELS.slice(LOG_LEVELS.indexOf(level));
+  if (error instanceof Error) {
+    logger.error(`Unknown error: ${error}`, error?.stack);
+    return;
   }
-}
+};

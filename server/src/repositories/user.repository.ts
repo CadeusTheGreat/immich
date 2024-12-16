@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DummyValue, GenerateSql } from 'src/decorators';
 import { AssetEntity } from 'src/entities/asset.entity';
-import { LibraryType } from 'src/entities/library.entity';
+import { UserMetadata, UserMetadataEntity } from 'src/entities/user-metadata.entity';
 import { UserEntity } from 'src/entities/user.entity';
 import {
   IUserRepository,
@@ -10,15 +10,14 @@ import {
   UserListFilter,
   UserStatsQueryResponse,
 } from 'src/interfaces/user.interface';
-import { Instrumentation } from 'src/utils/instrumentation';
 import { IsNull, Not, Repository } from 'typeorm';
 
-@Instrumentation()
 @Injectable()
 export class UserRepository implements IUserRepository {
   constructor(
     @InjectRepository(AssetEntity) private assetRepository: Repository<AssetEntity>,
     @InjectRepository(UserEntity) private userRepository: Repository<UserEntity>,
+    @InjectRepository(UserMetadataEntity) private metadataRepository: Repository<UserMetadataEntity>,
   ) {}
 
   async get(userId: string, options: UserFindOptions): Promise<UserEntity | null> {
@@ -26,6 +25,9 @@ export class UserRepository implements IUserRepository {
     return this.userRepository.findOne({
       where: { id: userId },
       withDeleted: options.withDeleted,
+      relations: {
+        metadata: true,
+      },
     });
   }
 
@@ -70,6 +72,9 @@ export class UserRepository implements IUserRepository {
       order: {
         createdAt: 'DESC',
       },
+      relations: {
+        metadata: true,
+      },
     });
   }
 
@@ -80,6 +85,14 @@ export class UserRepository implements IUserRepository {
   // TODO change to (user: Partial<UserEntity>)
   update(id: string, user: Partial<UserEntity>): Promise<UserEntity> {
     return this.save({ ...user, id });
+  }
+
+  async upsertMetadata<T extends keyof UserMetadata>(id: string, { key, value }: { key: T; value: UserMetadata[T] }) {
+    await this.metadataRepository.upsert({ userId: id, key, value }, { conflictPaths: { userId: true, key: true } });
+  }
+
+  async deleteMetadata<T extends keyof UserMetadata>(id: string, key: T) {
+    await this.metadataRepository.delete({ userId: id, key });
   }
 
   async delete(user: UserEntity, hard?: boolean): Promise<UserEntity> {
@@ -94,7 +107,15 @@ export class UserRepository implements IUserRepository {
       .addSelect('users.name', 'userName')
       .addSelect(`COUNT(assets.id) FILTER (WHERE assets.type = 'IMAGE' AND assets.isVisible)`, 'photos')
       .addSelect(`COUNT(assets.id) FILTER (WHERE assets.type = 'VIDEO' AND assets.isVisible)`, 'videos')
-      .addSelect('COALESCE(SUM(exif.fileSizeInByte), 0)', 'usage')
+      .addSelect('COALESCE(SUM(exif.fileSizeInByte) FILTER (WHERE assets.libraryId IS NULL), 0)', 'usage')
+      .addSelect(
+        `COALESCE(SUM(exif.fileSizeInByte) FILTER (WHERE assets.libraryId IS NULL AND assets.type = 'IMAGE'), 0)`,
+        'usagePhotos',
+      )
+      .addSelect(
+        `COALESCE(SUM(exif.fileSizeInByte) FILTER (WHERE assets.libraryId IS NULL AND assets.type = 'VIDEO'), 0)`,
+        'usageVideos',
+      )
       .addSelect('users.quotaSizeInBytes', 'quotaSizeInBytes')
       .leftJoin('users.assets', 'assets')
       .leftJoin('assets.exifInfo', 'exif')
@@ -106,6 +127,8 @@ export class UserRepository implements IUserRepository {
       stat.photos = Number(stat.photos);
       stat.videos = Number(stat.videos);
       stat.usage = Number(stat.usage);
+      stat.usagePhotos = Number(stat.usagePhotos);
+      stat.usageVideos = Number(stat.usageVideos);
       stat.quotaSizeInBytes = stat.quotaSizeInBytes;
     }
 
@@ -123,10 +146,9 @@ export class UserRepository implements IUserRepository {
     const subQuery = this.assetRepository
       .createQueryBuilder('assets')
       .select('COALESCE(SUM(exif."fileSizeInByte"), 0)')
-      .leftJoin('assets.library', 'library')
       .leftJoin('assets.exifInfo', 'exif')
       .where('assets.ownerId = users.id')
-      .andWhere(`library.type = '${LibraryType.UPLOAD}'`)
+      .andWhere(`assets.libraryId IS NULL`)
       .withDeleted();
 
     const query = this.userRepository
@@ -144,6 +166,12 @@ export class UserRepository implements IUserRepository {
 
   private async save(user: Partial<UserEntity>) {
     const { id } = await this.userRepository.save(user);
-    return this.userRepository.findOneOrFail({ where: { id }, withDeleted: true });
+    return this.userRepository.findOneOrFail({
+      where: { id },
+      withDeleted: true,
+      relations: {
+        metadata: true,
+      },
+    });
   }
 }

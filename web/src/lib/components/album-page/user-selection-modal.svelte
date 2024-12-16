@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
   import Dropdown from '$lib/components/elements/dropdown.svelte';
   import Icon from '$lib/components/elements/icon.svelte';
   import FullScreenModal from '$lib/components/shared-components/full-screen-modal.svelte';
@@ -7,43 +6,47 @@
   import {
     AlbumUserRole,
     getAllSharedLinks,
-    getAllUsers,
+    searchUsers,
     type AlbumResponseDto,
     type AlbumUserAddDto,
     type SharedLinkResponseDto,
     type UserResponseDto,
   } from '@immich/sdk';
   import { mdiCheck, mdiEye, mdiLink, mdiPencil, mdiShareCircle } from '@mdi/js';
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { onMount } from 'svelte';
   import Button from '../elements/buttons/button.svelte';
   import UserAvatar from '../shared-components/user-avatar.svelte';
+  import { t } from 'svelte-i18n';
 
-  export let album: AlbumResponseDto;
-  export let onClose: () => void;
-  let users: UserResponseDto[] = [];
-  let selectedUsers: Record<string, { user: UserResponseDto; role: AlbumUserRole }> = {};
+  interface Props {
+    album: AlbumResponseDto;
+    onClose: () => void;
+    onSelect: (selectedUsers: AlbumUserAddDto[]) => void;
+    onShare: () => void;
+  }
+
+  let { album, onClose, onSelect, onShare }: Props = $props();
+
+  let users: UserResponseDto[] = $state([]);
+  let selectedUsers: Record<string, { user: UserResponseDto; role: AlbumUserRole }> = $state({});
 
   const roleOptions: Array<{ title: string; value: AlbumUserRole | 'none'; icon?: string }> = [
-    { title: 'Editor', value: AlbumUserRole.Editor, icon: mdiPencil },
-    { title: 'Viewer', value: AlbumUserRole.Viewer, icon: mdiEye },
-    { title: 'Remove', value: 'none' },
+    { title: $t('role_editor'), value: AlbumUserRole.Editor, icon: mdiPencil },
+    { title: $t('role_viewer'), value: AlbumUserRole.Viewer, icon: mdiEye },
+    { title: $t('remove_user'), value: 'none' },
   ];
 
-  const dispatch = createEventDispatcher<{
-    select: AlbumUserAddDto[];
-    share: void;
-  }>();
-  let sharedLinks: SharedLinkResponseDto[] = [];
+  let sharedLinks: SharedLinkResponseDto[] = $state([]);
   onMount(async () => {
     await getSharedLinks();
-    const data = await getAllUsers({ isAll: false });
+    const data = await searchUsers();
 
-    // remove invalid users
-    users = data.filter((user) => !(user.deletedAt || user.id === album.ownerId));
+    // remove album owner
+    users = data.filter((user) => user.id !== album.ownerId);
 
     // Remove the existed shared users from the album
-    for (const sharedUser of album.sharedUsers) {
-      users = users.filter((user) => user.id !== sharedUser.id);
+    for (const sharedUser of album.albumUsers) {
+      users = users.filter((user) => user.id !== sharedUser.user.id);
     }
   });
 
@@ -55,7 +58,6 @@
   const handleToggle = (user: UserResponseDto) => {
     if (Object.keys(selectedUsers).includes(user.id)) {
       delete selectedUsers[user.id];
-      selectedUsers = selectedUsers;
     } else {
       selectedUsers[user.id] = { user, role: AlbumUserRole.Editor };
     }
@@ -64,17 +66,16 @@
   const handleChangeRole = (user: UserResponseDto, role: AlbumUserRole | 'none') => {
     if (role === 'none') {
       delete selectedUsers[user.id];
-      selectedUsers = selectedUsers;
     } else {
       selectedUsers[user.id].role = role;
     }
   };
 </script>
 
-<FullScreenModal id="user-selection-modal" title="Invite to album" showLogo {onClose}>
+<FullScreenModal title={$t('invite_to_album')} showLogo {onClose}>
   {#if Object.keys(selectedUsers).length > 0}
     <div class="mb-2 py-2 sticky">
-      <p class="text-xs font-medium">SELECTED</p>
+      <p class="text-xs font-medium">{$t('selected').toUpperCase()}</p>
       <div class="my-2">
         {#each Object.values(selectedUsers) as { user }}
           {#key user.id}
@@ -96,10 +97,10 @@
               </div>
 
               <Dropdown
-                title="Role"
+                title={$t('role')}
                 options={roleOptions}
                 render={({ title, icon }) => ({ title, icon })}
-                on:select={({ detail: { value } }) => handleChangeRole(user, value)}
+                onSelect={({ value }) => handleChangeRole(user, value)}
               />
             </div>
           {/key}
@@ -110,19 +111,19 @@
 
   {#if users.length + Object.keys(selectedUsers).length === 0}
     <p class="p-5 text-sm">
-      Looks like you have shared this album with all users or you don't have any user to share with.
+      {$t('album_share_no_users')}
     </p>
   {/if}
 
   <div class="immich-scrollbar max-h-[500px] overflow-y-auto">
     {#if users.length > 0 && users.length !== Object.keys(selectedUsers).length}
-      <p class="text-xs font-medium">SUGGESTIONS</p>
+      <p class="text-xs font-medium">{$t('suggestions').toUpperCase()}</p>
 
       <div class="my-2">
         {#each users as user}
           {#if !Object.keys(selectedUsers).includes(user.id)}
             <div class="flex place-items-center transition-all hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl">
-              <button on:click={() => handleToggle(user)} class="flex w-full place-items-center gap-4 p-4">
+              <button type="button" onclick={() => handleToggle(user)} class="flex w-full place-items-center gap-4 p-4">
                 <UserAvatar {user} size="md" />
                 <div class="text-left flex-grow">
                   <p class="text-immich-fg dark:text-immich-dark-fg">
@@ -147,11 +148,9 @@
         fullwidth
         rounded="full"
         disabled={Object.keys(selectedUsers).length === 0}
-        on:click={() =>
-          dispatch(
-            'select',
-            Object.values(selectedUsers).map(({ user, ...rest }) => ({ userId: user.id, ...rest })),
-          )}>Add</Button
+        onclick={() =>
+          onSelect(Object.values(selectedUsers).map(({ user, ...rest }) => ({ userId: user.id, ...rest })))}
+        >{$t('add')}</Button
       >
     </div>
   {/if}
@@ -160,21 +159,22 @@
 
   <div id="shared-buttons" class="mt-4 flex place-content-center place-items-center justify-around">
     <button
+      type="button"
       class="flex flex-col place-content-center place-items-center gap-2 hover:cursor-pointer"
-      on:click={() => dispatch('share')}
+      onclick={onShare}
     >
       <Icon path={mdiLink} size={24} />
-      <p class="text-sm">Create link</p>
+      <p class="text-sm">{$t('create_link')}</p>
     </button>
 
     {#if sharedLinks.length}
-      <button
+      <a
+        href={AppRoute.SHARED_LINKS}
         class="flex flex-col place-content-center place-items-center gap-2 hover:cursor-pointer"
-        on:click={() => goto(AppRoute.SHARED_LINKS)}
       >
         <Icon path={mdiShareCircle} size={24} />
-        <p class="text-sm">View links</p>
-      </button>
+        <p class="text-sm">{$t('view_links')}</p>
+      </a>
     {/if}
   </div>
 </FullScreenModal>

@@ -5,22 +5,27 @@
   import { featureFlags, serverConfig } from '$lib/stores/server-config.store';
   import { oauth } from '$lib/utils';
   import { getServerErrorMessage, handleError } from '$lib/utils/handle-error';
-  import { getServerConfig, login } from '@immich/sdk';
+  import { login } from '@immich/sdk';
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
   import Button from '../elements/buttons/button.svelte';
   import PasswordField from '../shared-components/password-field.svelte';
+  import { t } from 'svelte-i18n';
 
-  export let onSuccess: () => unknown | Promise<unknown>;
-  export let onFirstLogin: () => unknown | Promise<unknown>;
-  export let onOnboarding: () => unknown | Promise<unknown>;
+  interface Props {
+    onSuccess: () => unknown | Promise<unknown>;
+    onFirstLogin: () => unknown | Promise<unknown>;
+    onOnboarding: () => unknown | Promise<unknown>;
+  }
 
-  let errorMessage: string;
-  let email = '';
-  let password = '';
-  let oauthError = '';
-  let loading = false;
-  let oauthLoading = true;
+  let { onSuccess, onFirstLogin, onOnboarding }: Props = $props();
+
+  let errorMessage: string = $state('');
+  let email = $state('');
+  let password = $state('');
+  let oauthError = $state('');
+  let loading = $state(false);
+  let oauthLoading = $state(true);
 
   onMount(async () => {
     if (!$featureFlags.oauth) {
@@ -35,7 +40,7 @@
         return;
       } catch (error) {
         console.error('Error [login-form] [oauth.callback]', error);
-        oauthError = getServerErrorMessage(error) || 'Unable to complete OAuth login';
+        oauthError = getServerErrorMessage(error) || $t('errors.unable_to_complete_oauth_login');
         oauthLoading = false;
       }
     }
@@ -47,7 +52,7 @@
         return;
       }
     } catch (error) {
-      handleError(error, 'Unable to connect!');
+      handleError(error, $t('errors.unable_to_connect'));
     }
 
     oauthLoading = false;
@@ -57,11 +62,9 @@
     try {
       errorMessage = '';
       loading = true;
-
       const user = await login({ loginCredentialDto: { email, password } });
-      const serverConfig = await getServerConfig();
 
-      if (user.isAdmin && !serverConfig.isOnboarded) {
+      if (user.isAdmin && !$serverConfig.isOnboarded) {
         await onOnboarding();
         return;
       }
@@ -73,7 +76,7 @@
       await onSuccess();
       return;
     } catch (error) {
-      errorMessage = getServerErrorMessage(error) || 'Incorrect email or password';
+      errorMessage = getServerErrorMessage(error) || $t('errors.incorrect_email_or_password');
       loading = false;
       return;
     }
@@ -85,13 +88,18 @@
     const success = await oauth.authorize(window.location);
     if (!success) {
       oauthLoading = false;
-      oauthError = 'Unable to login with OAuth';
+      oauthError = $t('errors.unable_to_login_with_oauth');
     }
+  };
+
+  const onsubmit = async (event: Event) => {
+    event.preventDefault();
+    await handleLogin();
   };
 </script>
 
 {#if !oauthLoading && $featureFlags.passwordLogin}
-  <form on:submit|preventDefault={handleLogin} class="mt-5 flex flex-col gap-5">
+  <form {onsubmit} class="mt-5 flex flex-col gap-5">
     {#if errorMessage}
       <p class="text-red-400" transition:fade>
         {errorMessage}
@@ -99,7 +107,7 @@
     {/if}
 
     <div class="flex flex-col gap-2">
-      <label class="immich-form-label" for="email">Email</label>
+      <label class="immich-form-label" for="email">{$t('email')}</label>
       <input
         class="immich-form-input"
         id="email"
@@ -112,7 +120,7 @@
     </div>
 
     <div class="flex flex-col gap-2">
-      <label class="immich-form-label" for="password">Password</label>
+      <label class="immich-form-label" for="password">{$t('password')}</label>
       <PasswordField id="password" bind:password autocomplete="current-password" />
     </div>
 
@@ -123,7 +131,7 @@
             <LoadingSpinner />
           </span>
         {:else}
-          Login
+          {$t('to_login')}
         {/if}
       </Button>
     </div>
@@ -137,7 +145,7 @@
       <span
         class="absolute left-1/2 -translate-x-1/2 bg-white px-3 font-medium text-gray-900 dark:bg-immich-dark-gray dark:text-white"
       >
-        or
+        {$t('or')}
       </span>
     </div>
   {/if}
@@ -151,7 +159,7 @@
       size="lg"
       fullwidth
       color={$featureFlags.passwordLogin ? 'secondary' : 'primary'}
-      on:click={handleOAuthLogin}
+      onclick={handleOAuthLogin}
     >
       {#if oauthLoading}
         <span class="h-6">
@@ -165,5 +173,5 @@
 {/if}
 
 {#if !$featureFlags.passwordLogin && !$featureFlags.oauth}
-  <p class="p-4 text-center dark:text-immich-dark-fg">Login has been disabled.</p>
+  <p class="p-4 text-center dark:text-immich-dark-fg">{$t('login_has_been_disabled')}</p>
 {/if}

@@ -1,39 +1,40 @@
-import { Body, Controller, Get, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Put } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { MapThemeDto, SystemConfigDto, SystemConfigTemplateStorageOptionDto } from 'src/dtos/system-config.dto';
-import { AdminRoute, Authenticated, SharedLinkRoute } from 'src/middleware/auth.guard';
+import { SystemConfigDto, SystemConfigTemplateStorageOptionDto } from 'src/dtos/system-config.dto';
+import { Permission } from 'src/enum';
+import { Authenticated } from 'src/middleware/auth.guard';
+import { StorageTemplateService } from 'src/services/storage-template.service';
 import { SystemConfigService } from 'src/services/system-config.service';
 
 @ApiTags('System Config')
 @Controller('system-config')
-@Authenticated({ admin: true })
 export class SystemConfigController {
-  constructor(private service: SystemConfigService) {}
+  constructor(
+    private service: SystemConfigService,
+    private storageTemplateService: StorageTemplateService,
+  ) {}
 
   @Get()
+  @Authenticated({ permission: Permission.SYSTEM_CONFIG_READ, admin: true })
   getConfig(): Promise<SystemConfigDto> {
-    return this.service.getConfig();
+    return this.service.getSystemConfig();
   }
 
   @Get('defaults')
+  @Authenticated({ permission: Permission.SYSTEM_CONFIG_READ, admin: true })
   getConfigDefaults(): SystemConfigDto {
     return this.service.getDefaults();
   }
 
   @Put()
+  @Authenticated({ permission: Permission.SYSTEM_CONFIG_UPDATE, admin: true })
   updateConfig(@Body() dto: SystemConfigDto): Promise<SystemConfigDto> {
-    return this.service.updateConfig(dto);
+    return this.service.updateSystemConfig(dto);
   }
 
   @Get('storage-template-options')
+  @Authenticated({ permission: Permission.SYSTEM_CONFIG_READ, admin: true })
   getStorageTemplateOptions(): SystemConfigTemplateStorageOptionDto {
-    return this.service.getStorageTemplateOptions();
-  }
-
-  @AdminRoute(false)
-  @SharedLinkRoute()
-  @Get('map/style.json')
-  getMapStyle(@Query() dto: MapThemeDto) {
-    return this.service.getMapStyle(dto.theme);
+    return this.storageTemplateService.getStorageTemplateOptions();
   }
 }

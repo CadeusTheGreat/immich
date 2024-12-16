@@ -1,10 +1,12 @@
-import { LogLevel } from 'src/entities/system-config.entity';
+import { ImmichWorker, LogLevel } from 'src/enum';
 
 export const ILoggerRepository = 'ILoggerRepository';
 
 export interface ILoggerRepository {
+  setAppName(name: ImmichWorker): void;
   setContext(message: string): void;
-  setLogLevel(level: LogLevel): void;
+  setLogLevel(level: LogLevel | false): void;
+  isLevelEnabled(level: LogLevel): boolean;
 
   verbose(message: any, ...args: any): void;
   debug(message: any, ...args: any): void;

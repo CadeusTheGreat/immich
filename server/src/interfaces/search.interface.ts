@@ -1,6 +1,7 @@
 import { AssetFaceEntity } from 'src/entities/asset-face.entity';
-import { AssetEntity, AssetType } from 'src/entities/asset.entity';
+import { AssetEntity } from 'src/entities/asset.entity';
 import { GeodataPlacesEntity } from 'src/entities/geodata-places.entity';
+import { AssetStatus, AssetType } from 'src/enum';
 import { Paginated } from 'src/utils/pagination';
 
 export const ISearchRepository = 'ISearchRepository';
@@ -37,8 +38,6 @@ export interface SearchExploreItem<T> {
   items: SearchExploreItemSet<T>;
 }
 
-export type Embedding = number[];
-
 export interface SearchAssetIDOptions {
   checksum?: Buffer;
   deviceAssetId?: string;
@@ -47,7 +46,7 @@ export interface SearchAssetIDOptions {
 
 export interface SearchUserIdOptions {
   deviceId?: string;
-  libraryId?: string;
+  libraryId?: string | null;
   userIds?: string[];
 }
 
@@ -62,13 +61,13 @@ export interface SearchStatusOptions {
   isVisible?: boolean;
   isNotInAlbum?: boolean;
   type?: AssetType;
+  status?: AssetStatus;
   withArchived?: boolean;
   withDeleted?: boolean;
 }
 
 export interface SearchOneToOneRelationOptions {
   withExif?: boolean;
-  withSmartInfo?: boolean;
   withStacked?: boolean;
 }
 
@@ -97,16 +96,16 @@ export interface SearchPathOptions {
 }
 
 export interface SearchExifOptions {
-  city?: string;
-  country?: string;
-  lensModel?: string;
-  make?: string;
-  model?: string;
-  state?: string;
+  city?: string | null;
+  country?: string | null;
+  lensModel?: string | null;
+  make?: string | null;
+  model?: string | null;
+  state?: string | null;
 }
 
 export interface SearchEmbeddingOptions {
-  embedding: Embedding;
+  embedding: number[];
   userIds: string[];
 }
 
@@ -152,18 +151,56 @@ export interface FaceEmbeddingSearch extends SearchEmbeddingOptions {
   maxDistance?: number;
 }
 
+export interface AssetDuplicateSearch {
+  assetId: string;
+  embedding: number[];
+  maxDistance?: number;
+  type: AssetType;
+  userIds: string[];
+}
+
 export interface FaceSearchResult {
   distance: number;
   face: AssetFaceEntity;
 }
 
+export interface AssetDuplicateResult {
+  assetId: string;
+  duplicateId: string | null;
+  distance: number;
+}
+
+export interface GetStatesOptions {
+  country?: string;
+}
+
+export interface GetCitiesOptions extends GetStatesOptions {
+  state?: string;
+}
+
+export interface GetCameraModelsOptions {
+  make?: string;
+}
+
+export interface GetCameraMakesOptions {
+  model?: string;
+}
+
 export interface ISearchRepository {
-  init(modelName: string): Promise<void>;
   searchMetadata(pagination: SearchPaginationOptions, options: AssetSearchOptions): Paginated<AssetEntity>;
   searchSmart(pagination: SearchPaginationOptions, options: SmartSearchOptions): Paginated<AssetEntity>;
+  searchDuplicates(options: AssetDuplicateSearch): Promise<AssetDuplicateResult[]>;
   searchFaces(search: FaceEmbeddingSearch): Promise<FaceSearchResult[]>;
+  searchRandom(size: number, options: AssetSearchOptions): Promise<AssetEntity[]>;
   upsert(assetId: string, embedding: number[]): Promise<void>;
   searchPlaces(placeName: string): Promise<GeodataPlacesEntity[]>;
   getAssetsByCity(userIds: string[]): Promise<AssetEntity[]>;
   deleteAllSearchEmbeddings(): Promise<void>;
+  getDimensionSize(): Promise<number>;
+  setDimensionSize(dimSize: number): Promise<void>;
+  getCountries(userIds: string[]): Promise<Array<string | null>>;
+  getStates(userIds: string[], options: GetStatesOptions): Promise<Array<string | null>>;
+  getCities(userIds: string[], options: GetCitiesOptions): Promise<Array<string | null>>;
+  getCameraMakes(userIds: string[], options: GetCameraMakesOptions): Promise<Array<string | null>>;
+  getCameraModels(userIds: string[], options: GetCameraModelsOptions): Promise<Array<string | null>>;
 }

@@ -1,5 +1,9 @@
 # Repair Page
 
+:::warning
+This feature is currently disabled and will be reworked in the near future.
+:::
+
 The repair page is designed to give information to the system administrator about files that are not tracked, or offline paths.
 
 ## Natural State
@@ -18,7 +22,7 @@ In any other situation, there are 3 different options that can appear:
 
 - MATCHES - These files are matched by their checksums.
 
-- OFFLINE PATHS - These files are the result of manually deleting files in the upload library or a failed file move in the past (losing track of a file).
+- OFFLINE PATHS - These files are the result of manually deleting files from immich or a failed file move in the past (losing track of a file).
 
 - UNTRACKED FILES - These files are not tracked by the application. They can be the result of failed moves, interrupted uploads, or left behind due to a bug.
 

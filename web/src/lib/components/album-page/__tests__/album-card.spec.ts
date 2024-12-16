@@ -1,13 +1,21 @@
 import { sdkMock } from '$lib/__mocks__/sdk.mock';
-import { albumFactory } from '@test-data';
+import { albumFactory } from '@test-data/factories/album-factory';
 import '@testing-library/jest-dom';
-import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/svelte';
+import { render, waitFor, type RenderResult } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
+import { init, register, waitLocale } from 'svelte-i18n';
 import AlbumCard from '../album-card.svelte';
 
 const onShowContextMenu = vi.fn();
 
 describe('AlbumCard component', () => {
-  let sut: RenderResult<AlbumCard>;
+  let sut: RenderResult<typeof AlbumCard>;
+
+  beforeAll(async () => {
+    await init({ fallbackLocale: 'en-US' });
+    register('en-US', () => import('$i18n/en.json'));
+    await waitLocale('en-US');
+  });
 
   it.each([
     {
@@ -44,7 +52,7 @@ describe('AlbumCard component', () => {
     await waitFor(() => expect(albumImgElement).toHaveAttribute('src'));
 
     expect(albumImgElement).toHaveAttribute('alt', album.albumName);
-    expect(sdkMock.getAssetThumbnail).not.toHaveBeenCalled();
+    expect(sdkMock.viewAsset).not.toHaveBeenCalled();
 
     expect(albumNameElement).toHaveTextContent(album.albumName);
     expect(albumDetailsElement).toHaveTextContent(new RegExp(detailsText));
@@ -103,13 +111,9 @@ describe('AlbumCard component', () => {
         toJSON: () => ({}),
       });
 
-      await fireEvent(
-        contextMenuButton,
-        new MouseEvent('click', {
-          clientX: 123,
-          clientY: 456,
-        }),
-      );
+      const user = userEvent.setup();
+      await user.click(contextMenuButton);
+
       expect(onShowContextMenu).toHaveBeenCalledTimes(1);
       expect(onShowContextMenu).toHaveBeenCalledWith(expect.objectContaining({ x: 123, y: 456 }));
     });

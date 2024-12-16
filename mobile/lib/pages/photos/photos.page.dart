@@ -7,7 +7,6 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/providers/album/album.provider.dart';
-import 'package:immich_mobile/providers/album/shared_album.provider.dart';
 import 'package:immich_mobile/providers/multiselect.provider.dart';
 import 'package:immich_mobile/widgets/memories/memory_lane.dart';
 import 'package:immich_mobile/providers/asset.provider.dart';
@@ -33,9 +32,7 @@ class PhotosPage extends HookConsumerWidget {
       () {
         ref.read(websocketProvider.notifier).connect();
         Future(() => ref.read(assetProvider.notifier).getAllAsset());
-        ref.read(assetProvider.notifier).getPartnerAssets();
-        ref.read(albumProvider.notifier).getAllAlbums();
-        ref.read(sharedAlbumProvider.notifier).getAllSharedAlbums();
+        Future(() => ref.read(albumProvider.notifier).refreshRemoteAlbums());
         ref.read(serverInfoProvider.notifier).getServerInfo();
         return;
       },
@@ -85,9 +82,6 @@ class PhotosPage extends HookConsumerWidget {
     Future<void> refreshAssets() async {
       final fullRefresh = refreshCount.value > 0;
       await ref.read(assetProvider.notifier).getAllAsset(clear: fullRefresh);
-      if (timelineUsers.length > 1) {
-        await ref.read(assetProvider.notifier).getPartnerAssets();
-      }
       if (fullRefresh) {
         // refresh was forced: user requested another refresh within 2 seconds
         refreshCount.value = 0;
@@ -116,16 +110,14 @@ class PhotosPage extends HookConsumerWidget {
         AnimatedPositioned(
           duration: const Duration(milliseconds: 300),
           top: ref.watch(multiselectProvider)
-              ? -(kToolbarHeight + MediaQuery.of(context).padding.top)
+              ? -(kToolbarHeight + context.padding.top)
               : 0,
           left: 0,
           right: 0,
           child: Container(
-            height: kToolbarHeight + MediaQuery.of(context).padding.top,
+            height: kToolbarHeight + context.padding.top,
             color: context.themeData.appBarTheme.backgroundColor,
-            child: const SafeArea(
-              child: ImmichAppBar(),
-            ),
+            child: const ImmichAppBar(),
           ),
         ),
       ],

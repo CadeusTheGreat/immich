@@ -2,23 +2,24 @@ import { BinaryField, Tags } from 'exiftool-vendored';
 
 export const IMetadataRepository = 'IMetadataRepository';
 
-export interface GeoPoint {
-  latitude: number;
-  longitude: number;
-}
-
-export interface ReverseGeocodeResult {
-  country: string | null;
-  state: string | null;
-  city: string | null;
-}
-
 export interface ExifDuration {
   Value: number;
   Scale?: number;
 }
 
-export interface ImmichTags extends Omit<Tags, 'FocalLength' | 'Duration'> {
+type StringOrNumber = string | number;
+
+type TagsWithWrongTypes =
+  | 'FocalLength'
+  | 'Duration'
+  | 'Description'
+  | 'ImageDescription'
+  | 'RegionInfo'
+  | 'TagsList'
+  | 'Keywords'
+  | 'HierarchicalSubject'
+  | 'ISO';
+export interface ImmichTags extends Omit<Tags, TagsWithWrongTypes> {
   ContentIdentifier?: string;
   MotionPhoto?: number;
   MotionPhotoVersion?: number;
@@ -30,18 +31,41 @@ export interface ImmichTags extends Omit<Tags, 'FocalLength' | 'Duration'> {
   EmbeddedVideoType?: string;
   EmbeddedVideoFile?: BinaryField;
   MotionPhotoVideo?: BinaryField;
+  TagsList?: StringOrNumber[];
+  HierarchicalSubject?: StringOrNumber[];
+  Keywords?: StringOrNumber | StringOrNumber[];
+  ISO?: number | number[];
+
+  // Type is wrong, can also be number.
+  Description?: StringOrNumber;
+  ImageDescription?: StringOrNumber;
+
+  // Extended properties for image regions, such as faces
+  RegionInfo?: {
+    AppliedToDimensions: {
+      W: number;
+      H: number;
+      Unit: string;
+    };
+    RegionList: {
+      Area: {
+        // (X,Y) // center of the rectangle
+        X: number;
+        Y: number;
+        W: number;
+        H: number;
+        Unit: string;
+      };
+      Rotation?: number;
+      Type?: string;
+      Name?: string;
+    }[];
+  };
 }
 
 export interface IMetadataRepository {
-  init(): Promise<void>;
   teardown(): Promise<void>;
-  reverseGeocode(point: GeoPoint): Promise<ReverseGeocodeResult | null>;
-  readTags(path: string): Promise<ImmichTags | null>;
+  readTags(path: string): Promise<ImmichTags>;
   writeTags(path: string, tags: Partial<Tags>): Promise<void>;
   extractBinaryTag(tagName: string, path: string): Promise<Buffer>;
-  getCountries(userId: string): Promise<string[]>;
-  getStates(userId: string, country?: string): Promise<string[]>;
-  getCities(userId: string, country?: string, state?: string): Promise<string[]>;
-  getCameraMakes(userId: string, model?: string): Promise<string[]>;
-  getCameraModels(userId: string, make?: string): Promise<string[]>;
 }

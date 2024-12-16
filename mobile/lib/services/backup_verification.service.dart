@@ -8,39 +8,46 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/entities/asset.entity.dart';
 import 'package:immich_mobile/entities/exif_info.entity.dart';
 import 'package:immich_mobile/entities/store.entity.dart';
-import 'package:immich_mobile/providers/db.provider.dart';
+import 'package:immich_mobile/interfaces/asset.interface.dart';
+import 'package:immich_mobile/interfaces/exif_info.interface.dart';
+import 'package:immich_mobile/interfaces/file_media.interface.dart';
+import 'package:immich_mobile/repositories/asset.repository.dart';
+import 'package:immich_mobile/repositories/exif_info.repository.dart';
+import 'package:immich_mobile/repositories/file_media.repository.dart';
 import 'package:immich_mobile/services/api.service.dart';
 import 'package:immich_mobile/utils/diff.dart';
-import 'package:isar/isar.dart';
-import 'package:photo_manager/photo_manager.dart' show PhotoManager;
 
 /// Finds duplicates originating from missing EXIF information
 class BackupVerificationService {
-  final Isar _db;
+  final IFileMediaRepository _fileMediaRepository;
+  final IAssetRepository _assetRepository;
+  final IExifInfoRepository _exifInfoRepository;
 
-  BackupVerificationService(this._db);
+  BackupVerificationService(
+    this._fileMediaRepository,
+    this._assetRepository,
+    this._exifInfoRepository,
+  );
 
   /// Returns at most [limit] assets that were backed up without exif
   Future<List<Asset>> findWronglyBackedUpAssets({int limit = 100}) async {
     final owner = Store.get(StoreKey.currentUser).isarId;
-    final List<Asset> onlyLocal = await _db.assets
-        .where()
-        .remoteIdIsNull()
-        .filter()
-        .ownerIdEqualTo(owner)
-        .localIdIsNotNull()
-        .findAll();
-    final List<Asset> remoteMatches = await _getMatches(
-      _db.assets.where().localIdIsNull().filter().remoteIdIsNotNull(),
-      owner,
-      onlyLocal,
-      limit,
+    final List<Asset> onlyLocal = await _assetRepository.getAll(
+      ownerId: owner,
+      state: AssetState.local,
+      limit: limit,
     );
-    final List<Asset> localMatches = await _getMatches(
-      _db.assets.where().remoteIdIsNull().filter().localIdIsNotNull(),
-      owner,
-      remoteMatches,
-      limit,
+    final List<Asset> remoteMatches = await _assetRepository.getMatches(
+      assets: onlyLocal,
+      ownerId: owner,
+      state: AssetState.remote,
+      limit: limit,
+    );
+    final List<Asset> localMatches = await _assetRepository.getMatches(
+      assets: remoteMatches,
+      ownerId: owner,
+      state: AssetState.local,
+      limit: limit,
     );
 
     final List<Asset> deleteCandidates = [], originals = [];
@@ -50,7 +57,7 @@ class BackupVerificationService {
       localMatches,
       compare: (a, b) => a.fileName.compareTo(b.fileName),
       both: (a, b) async {
-        a.exifInfo = await _db.exifInfos.get(a.id);
+        a.exifInfo = await _exifInfoRepository.get(a.id);
         deleteCandidates.add(a);
         originals.add(b);
         return false;
@@ -71,6 +78,7 @@ class BackupVerificationService {
           auth: Store.get(StoreKey.accessToken),
           endpoint: Store.get(StoreKey.serverEndpoint),
           rootIsolateToken: isolateToken,
+          fileMediaRepository: _fileMediaRepository,
         ),
       );
       final upper = compute(
@@ -81,6 +89,7 @@ class BackupVerificationService {
           auth: Store.get(StoreKey.accessToken),
           endpoint: Store.get(StoreKey.serverEndpoint),
           rootIsolateToken: isolateToken,
+          fileMediaRepository: _fileMediaRepository,
         ),
       );
       toDelete = await lower + await upper;
@@ -93,6 +102,7 @@ class BackupVerificationService {
           auth: Store.get(StoreKey.accessToken),
           endpoint: Store.get(StoreKey.serverEndpoint),
           rootIsolateToken: isolateToken,
+          fileMediaRepository: _fileMediaRepository,
         ),
       );
     }
@@ -106,12 +116,13 @@ class BackupVerificationService {
       String auth,
       String endpoint,
       RootIsolateToken rootIsolateToken,
+      IFileMediaRepository fileMediaRepository,
     }) tuple,
   ) async {
     assert(tuple.deleteCandidates.length == tuple.originals.length);
     final List<Asset> result = [];
     BackgroundIsolateBinaryMessenger.ensureInitialized(tuple.rootIsolateToken);
-    await PhotoManager.setIgnorePermissionCheck(true);
+    await tuple.fileMediaRepository.enableBackgroundAccess();
     final ApiService apiService = ApiService();
     apiService.setEndpoint(tuple.endpoint);
     apiService.setAccessToken(tuple.auth);
@@ -136,7 +147,7 @@ class BackupVerificationService {
     ExifInfo? exif = remote.exifInfo;
     if (exif != null && exif.lat != null) return false;
     if (exif == null || exif.fileSize == null) {
-      final dto = await apiService.assetApi.getAssetInfo(remote.remoteId!);
+      final dto = await apiService.assetsApi.getAssetInfo(remote.remoteId!);
       if (dto != null && dto.exifInfo != null) {
         exif = ExifInfo.fromDto(dto.exifInfo!);
       }
@@ -165,8 +176,8 @@ class BackupVerificationService {
           // (skip first few KBs containing metadata)
           final Uint64List localImage =
               _fakeDecodeImg(local, await file.readAsBytes());
-          final res = await apiService.downloadApi
-              .downloadFileWithHttpInfo(remote.remoteId!);
+          final res = await apiService.assetsApi
+              .downloadAssetWithHttpInfo(remote.remoteId!);
           final Uint64List remoteImage = _fakeDecodeImg(remote, res.bodyBytes);
 
           final eq = const ListEquality().equals(remoteImage, localImage);
@@ -186,35 +197,6 @@ class BackupVerificationService {
     return bytes.buffer.asUint64List(start);
   }
 
-  static Future<List<Asset>> _getMatches(
-    QueryBuilder<Asset, Asset, QAfterFilterCondition> query,
-    int ownerId,
-    List<Asset> assets,
-    int limit,
-  ) =>
-      query
-          .ownerIdEqualTo(ownerId)
-          .anyOf(
-            assets,
-            (q, Asset a) => q
-                .fileNameEqualTo(a.fileName)
-                .and()
-                .durationInSecondsEqualTo(a.durationInSeconds)
-                .and()
-                .fileCreatedAtBetween(
-                  a.fileCreatedAt.subtract(const Duration(hours: 12)),
-                  a.fileCreatedAt.add(const Duration(hours: 12)),
-                )
-                .and()
-                .not()
-                .checksumEqualTo(a.checksum),
-          )
-          .sortByFileName()
-          .thenByFileCreatedAt()
-          .thenByFileModifiedAt()
-          .limit(limit)
-          .findAll();
-
   static bool _sameExceptTimeZone(DateTime a, DateTime b) {
     final ms = a.isAfter(b)
         ? a.millisecondsSinceEpoch - b.millisecondsSinceEpoch
@@ -227,6 +209,8 @@ class BackupVerificationService {
 
 final backupVerificationServiceProvider = Provider(
   (ref) => BackupVerificationService(
-    ref.watch(dbProvider),
+    ref.watch(fileMediaRepositoryProvider),
+    ref.watch(assetRepositoryProvider),
+    ref.watch(exifInfoRepositoryProvider),
   ),
 );

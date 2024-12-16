@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { run } from 'svelte/legacy';
+
   import { goto } from '$app/navigation';
   import UserPageLayout from '$lib/components/layouts/user-page-layout.svelte';
   import MapSettingsModal from '$lib/components/map-page/map-settings-modal.svelte';
@@ -17,15 +19,19 @@
   import { handlePromiseError } from '$lib/utils';
   import { navigate } from '$lib/utils/navigation';
 
-  export let data: PageData;
+  interface Props {
+    data: PageData;
+  }
+
+  let { data }: Props = $props();
 
   let { isViewing: showAssetViewer, asset: viewingAsset, setAssetId } = assetViewingStore;
 
   let abortController: AbortController;
-  let mapMarkers: MapMarkerResponseDto[] = [];
-  let viewingAssets: string[] = [];
+  let mapMarkers: MapMarkerResponseDto[] = $state([]);
+  let viewingAssets: string[] = $state([]);
   let viewingAssetCursor = 0;
-  let showSettingsModal = false;
+  let showSettingsModal = $state(false);
 
   onMount(async () => {
     mapMarkers = await loadMapMarkers();
@@ -36,7 +42,11 @@
     assetViewingStore.showAssetViewer(false);
   });
 
-  $: $featureFlags.map || handlePromiseError(goto(AppRoute.PHOTOS));
+  run(() => {
+    if (!$featureFlags.map) {
+      handlePromiseError(goto(AppRoute.PHOTOS));
+    }
+  });
   const omit = (obj: MapSettings, key: string) => {
     return Object.fromEntries(Object.entries(obj).filter(([k]) => k !== key));
   };
@@ -47,7 +57,7 @@
     }
     abortController = new AbortController();
 
-    const { includeArchived, onlyFavorites, withPartners } = $mapSettings;
+    const { includeArchived, onlyFavorites, withPartners, withSharedAlbums } = $mapSettings;
     const { fileCreatedAfter, fileCreatedBefore } = getFileCreatedDates();
 
     return await getMapMarkers(
@@ -57,6 +67,7 @@
         fileCreatedAfter: fileCreatedAfter || undefined,
         fileCreatedBefore,
         withPartners: withPartners || undefined,
+        withSharedAlbums: withSharedAlbums || undefined,
       },
       {
         signal: abortController.signal,
@@ -110,18 +121,21 @@
 {#if $featureFlags.loaded && $featureFlags.map}
   <UserPageLayout title={data.meta.title}>
     <div class="isolate h-full w-full">
-      <Map bind:mapMarkers bind:showSettingsModal on:selected={(event) => onViewAssets(event.detail)} />
-    </div></UserPageLayout
-  >
+      <Map hash bind:mapMarkers bind:showSettingsModal onSelect={onViewAssets} />
+    </div>
+  </UserPageLayout>
   <Portal target="body">
     {#if $showAssetViewer}
       {#await import('../../../../../lib/components/asset-viewer/asset-viewer.svelte') then { default: AssetViewer }}
         <AssetViewer
           asset={$viewingAsset}
           showNavigation={viewingAssets.length > 1}
-          on:next={navigateNext}
-          on:previous={navigatePrevious}
-          on:close={() => assetViewingStore.showAssetViewer(false)}
+          onNext={navigateNext}
+          onPrevious={navigatePrevious}
+          onClose={() => {
+            assetViewingStore.showAssetViewer(false);
+            handlePromiseError(navigate({ targetRoute: 'current', assetId: null }));
+          }}
           isShared={false}
         />
       {/await}
@@ -131,11 +145,11 @@
   {#if showSettingsModal}
     <MapSettingsModal
       settings={{ ...$mapSettings }}
-      on:close={() => (showSettingsModal = false)}
-      on:save={async ({ detail }) => {
-        const shouldUpdate = !isEqual(omit(detail, 'allowDarkMode'), omit($mapSettings, 'allowDarkMode'));
+      onClose={() => (showSettingsModal = false)}
+      onSave={async (settings) => {
+        const shouldUpdate = !isEqual(omit(settings, 'allowDarkMode'), omit($mapSettings, 'allowDarkMode'));
         showSettingsModal = false;
-        $mapSettings = detail;
+        $mapSettings = settings;
 
         if (shouldUpdate) {
           mapMarkers = await loadMapMarkers();

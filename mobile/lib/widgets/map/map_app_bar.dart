@@ -19,7 +19,7 @@ class MapAppBar extends HookWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 25),
+      padding: EdgeInsets.only(top: context.padding.top + 25),
       child: ValueListenableBuilder(
         valueListenable: selectedAssets,
         builder: (ctx, value, child) => value.isNotEmpty
@@ -50,7 +50,7 @@ class _NonSelectionRow extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         ElevatedButton(
-          onPressed: () => context.popRoute(),
+          onPressed: () => context.maybePop(),
           style: ElevatedButton.styleFrom(
             shape: const CircleBorder(),
           ),

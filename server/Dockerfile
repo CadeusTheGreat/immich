@@ -1,19 +1,19 @@
 # dev build
-FROM ghcr.io/immich-app/base-server-dev:20240507@sha256:ca3b8f7ca4ef72cb191b97d2715bfa0e3decdf39e666c5020536e41cf14cee1e as dev
+FROM ghcr.io/immich-app/base-server-dev:20241210@sha256:35c28404b508fc0741fffb39a9de17e3a6acdff0b623bb7b6cdf4a427462a0e2 AS dev
 
 RUN apt-get install --no-install-recommends -yqq tini
 WORKDIR /usr/src/app
 COPY server/package.json server/package-lock.json ./
 RUN npm ci && \
-    # exiftool-vendored.pl, sharp-linux-x64 and sharp-linux-arm64 are the only ones we need
-    # they're marked as optional dependencies, so we need to copy them manually after pruning
-    rm -rf node_modules/@img/sharp-libvips* && \
-    rm -rf node_modules/@img/sharp-linuxmusl-x64
+  # exiftool-vendored.pl, sharp-linux-x64 and sharp-linux-arm64 are the only ones we need
+  # they're marked as optional dependencies, so we need to copy them manually after pruning
+  rm -rf node_modules/@img/sharp-libvips* && \
+  rm -rf node_modules/@img/sharp-linuxmusl-x64
 COPY server .
 ENV PATH="${PATH}:/usr/src/app/bin" \
-    NODE_ENV=development \
-    NVIDIA_DRIVER_CAPABILITIES=all \
-    NVIDIA_VISIBLE_DEVICES=all
+  IMMICH_ENV=development \
+  NVIDIA_DRIVER_CAPABILITIES=all \
+  NVIDIA_VISIBLE_DEVICES=all
 ENTRYPOINT ["tini", "--", "/bin/sh"]
 
 
@@ -25,7 +25,7 @@ COPY --from=dev /usr/src/app/node_modules/@img ./node_modules/@img
 COPY --from=dev /usr/src/app/node_modules/exiftool-vendored.pl ./node_modules/exiftool-vendored.pl
 
 # web build
-FROM node:iron-alpine3.18@sha256:142644a60c2fd7b954d7de9dd3f2aba0ce9c99b14ce354ee2e65b47ee36f6baf as web
+FROM node:22.11.0-alpine3.20@sha256:b64ced2e7cd0a4816699fe308ce6e8a08ccba463c757c00c14cd372e3d2c763e AS web
 
 WORKDIR /usr/src/open-api/typescript-sdk
 COPY open-api/typescript-sdk/package*.json open-api/typescript-sdk/tsconfig*.json ./
@@ -37,27 +37,48 @@ WORKDIR /usr/src/app
 COPY web/package*.json web/svelte.config.js ./
 RUN npm ci
 COPY web ./
+COPY i18n ../i18n
 RUN npm run build
 
 
 # prod build
-FROM ghcr.io/immich-app/base-server-prod:20240507@sha256:1394878615cc665fd6b04f07b78d6586bb5d888423cdf8987cea072d1d72fd1f
+FROM ghcr.io/immich-app/base-server-prod:20241210@sha256:076d002070385bc6dc7454ef9419f44341c074bcfc49be5deddbdb4108ae0060
 
 WORKDIR /usr/src/app
 ENV NODE_ENV=production \
-    NVIDIA_DRIVER_CAPABILITIES=all \
-    NVIDIA_VISIBLE_DEVICES=all
+  NVIDIA_DRIVER_CAPABILITIES=all \
+  NVIDIA_VISIBLE_DEVICES=all
 COPY --from=prod /usr/src/app/node_modules ./node_modules
 COPY --from=prod /usr/src/app/dist ./dist
 COPY --from=prod /usr/src/app/bin ./bin
-COPY --from=web /usr/src/app/build ./www
+COPY --from=web /usr/src/app/build /build/www
 COPY server/resources resources
 COPY server/package.json server/package-lock.json ./
 COPY server/start*.sh ./
+COPY "docker/scripts/get-cpus.sh" ./
 RUN npm link && npm install -g @immich/cli && npm cache clean --force
 COPY LICENSE /licenses/LICENSE.txt
 COPY LICENSE /LICENSE
 ENV PATH="${PATH}:/usr/src/app/bin"
+
+ARG BUILD_ID
+ARG BUILD_IMAGE
+ARG BUILD_SOURCE_REF
+ARG BUILD_SOURCE_COMMIT
+
+ENV IMMICH_BUILD=${BUILD_ID}
+ENV IMMICH_BUILD_URL=https://github.com/immich-app/immich/actions/runs/${BUILD_ID}
+ENV IMMICH_BUILD_IMAGE=${BUILD_IMAGE}
+ENV IMMICH_BUILD_IMAGE_URL=https://github.com/immich-app/immich/pkgs/container/immich-server
+ENV IMMICH_REPOSITORY=immich-app/immich
+ENV IMMICH_REPOSITORY_URL=https://github.com/immich-app/immich
+ENV IMMICH_SOURCE_REF=${BUILD_SOURCE_REF}
+ENV IMMICH_SOURCE_COMMIT=${BUILD_SOURCE_COMMIT}
+ENV IMMICH_SOURCE_URL=https://github.com/immich-app/immich/commit/${BUILD_SOURCE_COMMIT}
+
 VOLUME /usr/src/app/upload
-EXPOSE 3001
+EXPOSE 2283
 ENTRYPOINT ["tini", "--", "/bin/bash"]
+CMD ["start.sh"]
+
+HEALTHCHECK CMD immich-healthcheck

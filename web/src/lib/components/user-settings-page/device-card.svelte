@@ -12,15 +12,17 @@
     mdiLinux,
     mdiMicrosoftWindows,
     mdiTrashCanOutline,
+    mdiUbuntu,
   } from '@mdi/js';
   import { DateTime, type ToRelativeCalendarOptions } from 'luxon';
-  import { createEventDispatcher } from 'svelte';
+  import { t } from 'svelte-i18n';
 
-  export let device: SessionResponseDto;
+  interface Props {
+    device: SessionResponseDto;
+    onDelete?: (() => void) | undefined;
+  }
 
-  const dispatcher = createEventDispatcher<{
-    delete: void;
-  }>();
+  let { device, onDelete = undefined }: Props = $props();
 
   const options: ToRelativeCalendarOptions = {
     unit: 'days',
@@ -40,6 +42,8 @@
       <Icon path={mdiMicrosoftWindows} size="40" />
     {:else if device.deviceOS === 'Linux'}
       <Icon path={mdiLinux} size="40" />
+    {:else if device.deviceOS === 'Ubuntu'}
+      <Icon path={mdiUbuntu} size="40" />
     {:else if device.deviceOS === 'Chromium OS' || device.deviceType === 'Chrome' || device.deviceType === 'Chromium'}
       <Icon path={mdiGoogleChrome} size="40" />
     {:else}
@@ -50,13 +54,13 @@
     <div class="flex flex-col justify-center gap-1 dark:text-white">
       <span class="text-sm">
         {#if device.deviceType || device.deviceOS}
-          <span>{device.deviceOS || 'Unknown'} • {device.deviceType || 'Unknown'}</span>
+          <span>{device.deviceOS || $t('unknown')} • {device.deviceType || $t('unknown')}</span>
         {:else}
-          <span>Unknown</span>
+          <span>{$t('unknown')}</span>
         {/if}
       </span>
       <div class="text-sm">
-        <span class="">Last seen</span>
+        <span class="">{$t('last_seen')}</span>
         <span>{DateTime.fromISO(device.updatedAt, { locale: $locale }).toRelativeCalendar(options)}</span>
         <span class="text-xs text-gray-500 dark:text-gray-400"> - </span>
         <span class="text-xs text-gray-500 dark:text-gray-400">
@@ -64,14 +68,14 @@
         </span>
       </div>
     </div>
-    {#if !device.current}
+    {#if !device.current && onDelete}
       <div>
         <CircleIconButton
           color="primary"
           icon={mdiTrashCanOutline}
-          title="Log out"
+          title={$t('log_out')}
           size="16"
-          on:click={() => dispatcher('delete')}
+          onclick={onDelete}
         />
       </div>
     {/if}

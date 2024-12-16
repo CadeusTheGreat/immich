@@ -1,14 +1,29 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import Button from '../elements/buttons/button.svelte';
   import FullScreenModal from '../shared-components/full-screen-modal.svelte';
   import { mdiFolderRemove } from '@mdi/js';
   import { onMount } from 'svelte';
+  import { t } from 'svelte-i18n';
 
-  export let exclusionPattern: string;
-  export let exclusionPatterns: string[] = [];
-  export let isEditing = false;
-  export let submitText = 'Submit';
+  interface Props {
+    exclusionPattern: string;
+    exclusionPatterns?: string[];
+    isEditing?: boolean;
+    submitText?: string;
+    onCancel: () => void;
+    onSubmit: (exclusionPattern: string) => void;
+    onDelete?: () => void;
+  }
+
+  let {
+    exclusionPattern = $bindable(),
+    exclusionPatterns = $bindable([]),
+    isEditing = false,
+    submitText = $t('submit'),
+    onCancel,
+    onSubmit,
+    onDelete,
+  }: Props = $props();
 
   onMount(() => {
     if (isEditing) {
@@ -16,34 +31,26 @@
     }
   });
 
-  $: isDuplicate = exclusionPattern !== null && exclusionPatterns.includes(exclusionPattern);
-  $: canSubmit = exclusionPattern && !exclusionPatterns.includes(exclusionPattern);
+  let isDuplicate = $derived(exclusionPattern !== null && exclusionPatterns.includes(exclusionPattern));
+  let canSubmit = $derived(exclusionPattern && !exclusionPatterns.includes(exclusionPattern));
 
-  const dispatch = createEventDispatcher<{
-    cancel: void;
-    submit: { excludePattern: string };
-    delete: void;
-  }>();
-  const handleCancel = () => dispatch('cancel');
-  const handleSubmit = () => dispatch('submit', { excludePattern: exclusionPattern });
+  const onsubmit = (event: Event) => {
+    event.preventDefault();
+    if (canSubmit) {
+      onSubmit(exclusionPattern);
+    }
+  };
 </script>
 
-<FullScreenModal
-  id="add-exclusion-pattern-modal"
-  title="Add exclusion pattern"
-  icon={mdiFolderRemove}
-  onClose={handleCancel}
->
-  <form on:submit|preventDefault={() => handleSubmit()} autocomplete="off" id="add-exclusion-pattern-form">
+<FullScreenModal title={$t('add_exclusion_pattern')} icon={mdiFolderRemove} onClose={onCancel}>
+  <form {onsubmit} autocomplete="off" id="add-exclusion-pattern-form">
     <p class="py-5 text-sm">
-      Exclusion patterns lets you ignore files and folders when scanning your library. This is useful if you have
-      folders that contain files you don't want to import, such as RAW files.
+      {$t('admin.exclusion_pattern_description')}
       <br /><br />
-      Add exclusion patterns. Globbing using *, **, and ? is supported. To ignore all files in any directory named "Raw",
-      use "**/Raw/**". To ignore all files ending in ".tif", use "**/*.tif". To ignore an absolute path, use "/path/to/ignore".
+      {$t('admin.add_exclusion_pattern_description')}
     </p>
     <div class="my-4 flex flex-col gap-2">
-      <label class="immich-form-label" for="exclusionPattern">Pattern</label>
+      <label class="immich-form-label" for="exclusionPattern">{$t('pattern')}</label>
       <input
         class="immich-form-input"
         id="exclusionPattern"
@@ -54,15 +61,16 @@
     </div>
     <div class="mt-8 flex w-full gap-4">
       {#if isDuplicate}
-        <p class="text-red-500 text-sm">This exclusion pattern already exists.</p>
+        <p class="text-red-500 text-sm">{$t('errors.exclusion_pattern_already_exists')}</p>
       {/if}
     </div>
   </form>
-  <svelte:fragment slot="sticky-bottom">
-    <Button color="gray" fullwidth on:click={() => handleCancel()}>Cancel</Button>
+
+  {#snippet stickyBottom()}
+    <Button color="gray" fullwidth onclick={onCancel}>{$t('cancel')}</Button>
     {#if isEditing}
-      <Button color="red" fullwidth on:click={() => dispatch('delete')}>Delete</Button>
+      <Button color="red" fullwidth onclick={onDelete}>{$t('delete')}</Button>
     {/if}
     <Button type="submit" disabled={!canSubmit} fullwidth form="add-exclusion-pattern-form">{submitText}</Button>
-  </svelte:fragment>
+  {/snippet}
 </FullScreenModal>

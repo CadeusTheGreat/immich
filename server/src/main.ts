@@ -1,108 +1,75 @@
-import { NestFactory } from '@nestjs/core';
-import { NestExpressApplication } from '@nestjs/platform-express';
-import { json } from 'body-parser';
-import cookieParser from 'cookie-parser';
 import { CommandFactory } from 'nest-commander';
-import { existsSync } from 'node:fs';
-import sirv from 'sirv';
-import { ApiModule, ImmichAdminModule, MicroservicesModule } from 'src/app.module';
-import { WEB_ROOT, envName, excludePaths, isDev, serverVersion } from 'src/constants';
-import { LogLevel } from 'src/entities/system-config.entity';
-import { ILoggerRepository } from 'src/interfaces/logger.interface';
-import { WebSocketAdapter } from 'src/middleware/websocket.adapter';
-import { ApiService } from 'src/services/api.service';
-import { otelSDK } from 'src/utils/instrumentation';
-import { useSwagger } from 'src/utils/misc';
+import { ChildProcess, fork } from 'node:child_process';
+import { Worker } from 'node:worker_threads';
+import { ImmichAdminModule } from 'src/app.module';
+import { ImmichWorker, LogLevel } from 'src/enum';
+import { ConfigRepository } from 'src/repositories/config.repository';
 
-const host = process.env.HOST;
-
-async function bootstrapMicroservices() {
-  otelSDK.start();
-
-  const port = Number(process.env.MICROSERVICES_PORT) || 3002;
-  const app = await NestFactory.create(MicroservicesModule, { bufferLogs: true });
-  const logger = await app.resolve(ILoggerRepository);
-  logger.setContext('ImmichMicroservice');
-  app.useLogger(logger);
-  app.useWebSocketAdapter(new WebSocketAdapter(app));
-
-  await (host ? app.listen(port, host) : app.listen(port));
-
-  logger.log(`Immich Microservices is listening on ${await app.getUrl()} [v${serverVersion}] [${envName}] `);
-}
-
-async function bootstrapApi() {
-  otelSDK.start();
-
-  const port = Number(process.env.SERVER_PORT) || 3001;
-  const app = await NestFactory.create<NestExpressApplication>(ApiModule, { bufferLogs: true });
-  const logger = await app.resolve(ILoggerRepository);
-
-  logger.setContext('ImmichServer');
-  app.useLogger(logger);
-  app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal']);
-  app.set('etag', 'strong');
-  app.use(cookieParser());
-  app.use(json({ limit: '10mb' }));
-  if (isDev) {
-    app.enableCors();
-  }
-  app.useWebSocketAdapter(new WebSocketAdapter(app));
-  useSwagger(app, isDev);
-
-  app.setGlobalPrefix('api', { exclude: excludePaths });
-  if (existsSync(WEB_ROOT)) {
-    // copied from https://github.com/sveltejs/kit/blob/679b5989fe62e3964b9a73b712d7b41831aa1f07/packages/adapter-node/src/handler.js#L46
-    // provides serving of precompressed assets and caching of immutable assets
-    app.use(
-      sirv(WEB_ROOT, {
-        etag: true,
-        gzip: true,
-        brotli: true,
-        setHeaders: (res, pathname) => {
-          if (pathname.startsWith(`/_app/immutable`) && res.statusCode === 200) {
-            res.setHeader('cache-control', 'public,max-age=31536000,immutable');
-          }
-        },
-      }),
-    );
-  }
-  app.use(app.get(ApiService).ssr(excludePaths));
-
-  const server = await (host ? app.listen(port, host) : app.listen(port));
-  server.requestTimeout = 30 * 60 * 1000;
-
-  logger.log(`Immich Server is listening on ${await app.getUrl()} [v${serverVersion}] [${envName}] `);
-}
-
-const immichApp = process.argv[2] || process.env.IMMICH_APP;
-
-if (process.argv[2] === immichApp) {
+const immichApp = process.argv[2];
+if (immichApp) {
   process.argv.splice(2, 1);
 }
 
-async function bootstrapImmichAdmin() {
-  process.env.LOG_LEVEL = LogLevel.WARN;
-  await CommandFactory.run(ImmichAdminModule);
+let apiProcess: ChildProcess | undefined;
+
+const onError = (name: string, error: Error) => {
+  console.error(`${name} worker error: ${error}`);
+};
+
+const onExit = (name: string, exitCode: number | null) => {
+  if (exitCode !== 0) {
+    console.error(`${name} worker exited with code ${exitCode}`);
+
+    if (apiProcess && name !== ImmichWorker.API) {
+      console.error('Killing api process');
+      apiProcess.kill('SIGTERM');
+      apiProcess = undefined;
+    }
+  }
+
+  process.exit(exitCode);
+};
+
+function bootstrapWorker(name: ImmichWorker) {
+  console.log(`Starting ${name} worker`);
+
+  let worker: Worker | ChildProcess;
+  if (name === ImmichWorker.API) {
+    worker = fork(`./dist/workers/${name}.js`, [], {
+      execArgv: process.execArgv.map((arg) => (arg.startsWith('--inspect') ? '--inspect=0.0.0.0:9231' : arg)),
+    });
+    apiProcess = worker;
+  } else {
+    worker = new Worker(`./dist/workers/${name}.js`);
+  }
+
+  worker.on('error', (error) => onError(name, error));
+  worker.on('exit', (exitCode) => onExit(name, exitCode));
 }
 
 function bootstrap() {
-  switch (immichApp) {
-    case 'immich': {
-      process.title = 'immich_server';
-      return bootstrapApi();
-    }
-    case 'microservices': {
-      process.title = 'immich_microservices';
-      return bootstrapMicroservices();
-    }
-    case 'immich-admin': {
-      process.title = 'immich_admin_cli';
-      return bootstrapImmichAdmin();
-    }
-    default: {
-      throw new Error(`Invalid app name: ${immichApp}. Expected one of immich|microservices|immich-admin`);
-    }
+  if (immichApp === 'immich-admin') {
+    process.title = 'immich_admin_cli';
+    process.env.IMMICH_LOG_LEVEL = LogLevel.WARN;
+    return CommandFactory.run(ImmichAdminModule);
+  }
+
+  if (immichApp === 'immich' || immichApp === 'microservices') {
+    console.error(
+      `Using "start.sh ${immichApp}" has been deprecated. See https://github.com/immich-app/immich/releases/tag/v1.118.0 for more information.`,
+    );
+    process.exit(1);
+  }
+
+  if (immichApp) {
+    console.error(`Unknown command: "${immichApp}"`);
+    process.exit(1);
+  }
+
+  process.title = 'immich';
+  const { workers } = new ConfigRepository().getEnv();
+  for (const worker of workers) {
+    bootstrapWorker(worker);
   }
 }
 

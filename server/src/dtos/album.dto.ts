@@ -1,12 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { ArrayNotEmpty, IsEnum, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayNotEmpty, IsArray, IsEnum, IsString, ValidateNested } from 'class-validator';
 import _ from 'lodash';
-import { PropertyLifecycle } from 'src/decorators';
 import { AssetResponseDto, mapAsset } from 'src/dtos/asset-response.dto';
 import { AuthDto } from 'src/dtos/auth.dto';
 import { UserResponseDto, mapUser } from 'src/dtos/user.dto';
-import { AlbumUserRole } from 'src/entities/album-user.entity';
-import { AlbumEntity, AssetOrder } from 'src/entities/album.entity';
+import { AlbumEntity } from 'src/entities/album.entity';
+import { AlbumUserRole, AssetOrder } from 'src/enum';
+import { getAssetDateTime } from 'src/utils/date-time';
 import { Optional, ValidateBoolean, ValidateUUID } from 'src/validation';
 
 export class AlbumInfoDto {
@@ -24,13 +25,17 @@ export class AlbumUserAddDto {
 }
 
 export class AddUsersDto {
-  @ValidateUUID({ each: true, optional: true })
-  @ArrayNotEmpty()
-  @PropertyLifecycle({ deprecatedAt: 'v1.102.0' })
-  sharedUserIds?: string[];
-
   @ArrayNotEmpty()
   albumUsers!: AlbumUserAddDto[];
+}
+
+class AlbumUserCreateDto {
+  @ValidateUUID()
+  userId!: string;
+
+  @IsEnum(AlbumUserRole)
+  @ApiProperty({ enum: AlbumUserRole, enumName: 'AlbumUserRole' })
+  role!: AlbumUserRole;
 }
 
 export class CreateAlbumDto {
@@ -42,8 +47,11 @@ export class CreateAlbumDto {
   @Optional()
   description?: string;
 
-  @ValidateUUID({ optional: true, each: true })
-  sharedWithUserIds?: string[];
+  @Optional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AlbumUserCreateDto)
+  albumUsers?: AlbumUserCreateDto[];
 
   @ValidateUUID({ optional: true, each: true })
   assetIds?: string[];
@@ -88,7 +96,7 @@ export class GetAlbumsDto {
   assetId?: string;
 }
 
-export class AlbumCountResponseDto {
+export class AlbumStatisticsResponseDto {
   @ApiProperty({ type: 'integer' })
   owned!: number;
 
@@ -120,8 +128,6 @@ export class AlbumResponseDto {
   updatedAt!: Date;
   albumThumbnailAssetId!: string | null;
   shared!: boolean;
-  @PropertyLifecycle({ deprecatedAt: 'v1.102.0' })
-  sharedUsers!: UserResponseDto[];
   albumUsers!: AlbumUserResponseDto[];
   hasSharedLink!: boolean;
   assets!: AssetResponseDto[];
@@ -159,8 +165,8 @@ export const mapAlbum = (entity: AlbumEntity, withAssets: boolean, auth?: AuthDt
   const hasSharedLink = entity.sharedLinks?.length > 0;
   const hasSharedUser = sharedUsers.length > 0;
 
-  let startDate = assets.at(0)?.fileCreatedAt || undefined;
-  let endDate = assets.at(-1)?.fileCreatedAt || undefined;
+  let startDate = getAssetDateTime(assets.at(0));
+  let endDate = getAssetDateTime(assets.at(-1));
   // Swap dates if start date is greater than end date.
   if (startDate && endDate && startDate > endDate) {
     [startDate, endDate] = [endDate, startDate];
@@ -175,7 +181,6 @@ export const mapAlbum = (entity: AlbumEntity, withAssets: boolean, auth?: AuthDt
     id: entity.id,
     ownerId: entity.ownerId,
     owner: mapUser(entity.owner),
-    sharedUsers,
     albumUsers: albumUsersSorted,
     shared: hasSharedUser || hasSharedLink,
     hasSharedLink,

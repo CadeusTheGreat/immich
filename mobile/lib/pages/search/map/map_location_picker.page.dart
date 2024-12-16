@@ -12,7 +12,7 @@ import 'package:immich_mobile/widgets/map/map_theme_override.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:immich_mobile/utils/map_utils.dart';
 
-@RoutePage<LatLng?>()
+@RoutePage()
 class MapLocationPickerPage extends HookConsumerWidget {
   final LatLng initialLatLng;
 
@@ -41,7 +41,7 @@ class MapLocationPickerPage extends HookConsumerWidget {
     }
 
     void onClose([LatLng? selected]) {
-      context.popRoute(selected);
+      context.maybePop(selected);
     }
 
     Future<void> getCurrentLocation() async {
@@ -58,7 +58,7 @@ class MapLocationPickerPage extends HookConsumerWidget {
       controller.value?.animateCamera(CameraUpdate.newLatLng(currentLatLng));
     }
 
-    return MapThemeOveride(
+    return MapThemeOverride(
       mapBuilder: (style) => Builder(
         builder: (ctx) => Scaffold(
           backgroundColor: ctx.themeData.cardColor,

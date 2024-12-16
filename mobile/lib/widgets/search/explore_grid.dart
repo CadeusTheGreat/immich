@@ -44,7 +44,7 @@ class ExploreGrid extends StatelessWidget {
         final content = curatedContent[index];
         final thumbnailRequestUrl = isPeople
             ? getFaceThumbnailUrl(content.id)
-            : '${Store.get(StoreKey.serverEndpoint)}/asset/thumbnail/${content.id}';
+            : '${Store.get(StoreKey.serverEndpoint)}/assets/${content.id}/thumbnail';
 
         return ThumbnailWithInfo(
           imageUrl: thumbnailRequestUrl,
@@ -59,7 +59,7 @@ class ExploreGrid extends StatelessWidget {
                     ),
                   )
                 : context.pushRoute(
-                    SearchInputRoute(
+                    SearchRoute(
                       prefilter: SearchFilter(
                         people: {},
                         location: SearchLocationFilter(
